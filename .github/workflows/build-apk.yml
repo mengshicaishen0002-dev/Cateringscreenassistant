@@ -15,9 +15,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Extract v2.8 project
-        run: |
-          mkdir project
-          unzip -q CateringScreenAssistant-v2.8.0-project.zip -d project
+  run: |
+    mkdir project
+    ZIP_FILE=$(ls -1t CateringScreenAssistant-v2.8.0-project*.zip | head -n 1)
+    echo "Using ZIP: $ZIP_FILE"
+    unzip -q "$ZIP_FILE" -d project
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
