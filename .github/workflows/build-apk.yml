@@ -14,11 +14,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract v2.8 project
+      - name: Extract current project
         run: |
           mkdir project
-          ZIP_FILE=$(ls -1t CateringScreenAssistant-v2.8.0-project*.zip | head -n 1)
+          ZIP_FILE=$(ls -1t CateringScreenAssistant-v2.10.38-return-offers*.zip | head -n 1)
           echo "Using ZIP: $ZIP_FILE"
+          test -n "$ZIP_FILE"
           unzip -q "$ZIP_FILE" -d project
 
       - name: Set up Java 17
@@ -40,7 +41,7 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Run v2.8 regression tests
+      - name: Run regression tests
         working-directory: project
         run: bash ./run-regression-tests.sh
 
@@ -51,11 +52,11 @@ jobs:
       - name: Rename APK
         run: |
           cp project/app/build/outputs/apk/debug/app-debug.apk \
-          CateringScreenAssistant-v2.8.0-Galaxy-A15-Android16.apk
+          CateringScreenAssistant-v2.10.38-return-offers-Galaxy-A15-Android16.apk
 
       - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: CateringScreenAssistant-v2.8.0-Galaxy-A15-Android16
-          path: CateringScreenAssistant-v2.8.0-Galaxy-A15-Android16.apk
+          name: CateringScreenAssistant-v2.10.38-return-offers-Galaxy-A15-Android16
+          path: CateringScreenAssistant-v2.10.38-return-offers-Galaxy-A15-Android16.apk
           if-no-files-found: error
