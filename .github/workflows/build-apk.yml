@@ -14,12 +14,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract current project
+      - name: Find and extract latest ZIP
         run: |
-          mkdir project
-          ZIP_FILE=$(ls -1t CateringScreenAssistant-v2.10.38-return-offers*.zip | head -n 1)
+          ZIP_FILE=$(find . -maxdepth 1 -type f -name "*.zip" -printf "%T@ %p\n" \
+            | sort -nr \
+            | head -n 1 \
+            | cut -d' ' -f2-)
+
           echo "Using ZIP: $ZIP_FILE"
-          test -n "$ZIP_FILE"
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "No ZIP file found in repository root."
+            exit 1
+          fi
+
+          mkdir project
           unzip -q "$ZIP_FILE" -d project
 
       - name: Set up Java 17
@@ -52,11 +61,11 @@ jobs:
       - name: Rename APK
         run: |
           cp project/app/build/outputs/apk/debug/app-debug.apk \
-          CateringScreenAssistant-v2.10.38-return-offers-Galaxy-A15-Android16.apk
+          CateringScreenAssistant-latest.apk
 
       - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: CateringScreenAssistant-v2.10.38-return-offers-Galaxy-A15-Android16
-          path: CateringScreenAssistant-v2.10.38-return-offers-Galaxy-A15-Android16.apk
+          name: CateringScreenAssistant-latest
+          path: CateringScreenAssistant-latest.apk
           if-no-files-found: error
