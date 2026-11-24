@@ -1,4 +1,4 @@
-name: Build signed CSA APK v2.10.302 (verified source)
+name: Build signed CSA APK v2.10.303 (verified source)
 
 on:
   push:
@@ -8,10 +8,10 @@ on:
   workflow_dispatch:
     inputs:
       source_url:
-        description: 'Paste the public Google Drive share URL of v2.10.302 source ZIP'
-        required: true
+        description: 'Paste the public Google Drive share URL of v2.10.303 source ZIP'
+        required: false
         type: string
-        default: 'https://drive.google.com/file/d/10XcGDSDvsT3uBnid6wl0_rYxEPCpuCw0/view?usp=drivesdk'
+        default: 'https://drive.google.com/file/d/1PfwKgkUqOidgFe86mYB96vkyJ7oIyjRX/view?usp=drivesdk'
 
 permissions:
   contents: read
@@ -31,13 +31,13 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Download v2.10.302 source from Google Drive
+      - name: Download v2.10.303 source from Google Drive
         shell: bash
         env:
-          SOURCE_URL: ${{ inputs.source_url || 'https://drive.google.com/file/d/10XcGDSDvsT3uBnid6wl0_rYxEPCpuCw0/view?usp=drivesdk' }}
+          SOURCE_URL: ${{ inputs.source_url || 'https://drive.google.com/file/d/1PfwKgkUqOidgFe86mYB96vkyJ7oIyjRX/view?usp=drivesdk' }}
         run: |
           set -euo pipefail
-          archive="$RUNNER_TEMP/CateringScreenAssistant-v2.10.302-Source.zip"
+          archive="$RUNNER_TEMP/CateringScreenAssistant-v2.10.303-Source.zip"
           
           # Fail rather than silently building another version.
           file_id="$(python3 - "$SOURCE_URL" <<'PY_DRIVE_ID'
@@ -52,12 +52,12 @@ jobs:
           direct_url="https://drive.google.com/uc?export=download&id=$file_id"
 
           # Validate exact contents even if the archive was re-compressed.
-          verifier="$RUNNER_TEMP/verify-v302.py"
+          verifier="$RUNNER_TEMP/verify-v303.py"
           cat > "$verifier" <<'PY_VERIFY'
           import hashlib, json, pathlib, stat, sys, zipfile
           archive = pathlib.Path(sys.argv[1])
-          expected_zip = '37fd82fd2a0db3df3413ab3ca1a7fc6af689a212721f14920e4c05dd6760e2f0'
-          expected_content = '272f3455760f97c2b5d6f53c91cd3c214c69e331a7ff10b36d23f29f2962f18d'
+          expected_zip = '2871865ef89d8c22a856f4b6895d735d2da90ada0045bb73ecdf6f5bbdf81598'
+          expected_content = 'b0722b58971a644dd548c2a6981473ecb381c5e580e92a56ca4d00198dfc5faa'
           actual = hashlib.sha256(archive.read_bytes()).hexdigest()
           print('Expected archive SHA256:', expected_zip)
           print('Actual archive SHA256:  ', actual)
@@ -81,7 +81,7 @@ jobs:
                   print('Expected source content SHA256:', expected_content)
                   print('Actual source content SHA256:  ', digest)
                   if digest != expected_content:
-                      raise ValueError('Source files or project paths differ from verified v2.10.302')
+                      raise ValueError('Source files or project paths differ from verified v2.10.303')
                   print('PASS: exact original ZIP' if actual == expected_zip else 'PASS: repacked ZIP with identical file paths and contents')
           except (OSError, ValueError, zipfile.BadZipFile, RuntimeError) as e:
               print('ERROR:', e, file=sys.stderr)
@@ -99,21 +99,21 @@ jobs:
             "$RUNNER_TEMP/csa-gdown-venv/bin/gdown" \
               "$file_id" --output "$archive"
             python3 "$verifier" "$archive" || {
-              echo 'ERROR: Drive file does not contain the verified v2.10.302 source. Upload the original ZIP without extracting it.' >&2
+              echo 'ERROR: Drive file does not contain the verified v2.10.303 source. Upload the original ZIP without extracting it.' >&2
               exit 1
             }
           fi
           unzip -tq "$archive"
           mkdir -p "$RUNNER_TEMP/csa-source"
           unzip -q "$archive" -d "$RUNNER_TEMP/csa-source"
-          project="$RUNNER_TEMP/csa-source/CateringScreenAssistant-v2.10.302"
+          project="$RUNNER_TEMP/csa-source/CateringScreenAssistant-v2.10.303"
           test -f "$project/app/build.gradle"
           test -f "$project/settings.gradle"
           test -f "$project/run-regression-tests.sh"
-          grep -Fq 'versionCode 328' "$project/app/build.gradle"
-          grep -Fq 'versionName "2.10.302"' "$project/app/build.gradle"
+          grep -Fq 'versionCode 329' "$project/app/build.gradle"
+          grep -Fq 'versionName "2.10.303"' "$project/app/build.gradle"
           echo "CSA_PROJECT_DIR=$project" >> "$GITHUB_ENV"
-          echo 'Verified v2.10.302 source ZIP and project layout.'
+          echo 'Verified v2.10.303 source ZIP and project layout.'
           if grep -Fq 'if(indexed==null && !service.liveOfferSignal(' \
               "$project/app/src/main/java/com/local/cateringscreenassistant/OcrMonitorService.java"; then
             echo 'Old Java scope error is still present; refusing to compile' >&2
@@ -160,7 +160,7 @@ jobs:
           keytool -list -keystore "$CSA_PROJECT_DIR/csa-upgrade.keystore" \
             -storepass 'csa-update-2026' -alias csa >/dev/null
 
-      - name: Run v2.10.302 regression tests
+      - name: Run v2.10.303 regression tests
         shell: bash
         run: bash "$CSA_PROJECT_DIR/run-regression-tests.sh"
 
@@ -173,7 +173,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CateringScreenAssistant-v2.10.302-Signed-APK
+          name: CateringScreenAssistant-v2.10.303-Signed-APK
           path: ${{ env.CSA_PROJECT_DIR }}/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 30
