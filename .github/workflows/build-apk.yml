@@ -95,9 +95,9 @@ jobs:
             rm -f "$archive"
             python3 -m venv "$RUNNER_TEMP/csa-gdown-venv"
             "$RUNNER_TEMP/csa-gdown-venv/bin/pip" install \
-              --disable-pip-version-check --quiet gdown
+              --disable-pip-version-check --quiet "gdown==6.5.2"
             "$RUNNER_TEMP/csa-gdown-venv/bin/gdown" \
-              --fuzzy "$SOURCE_URL" --output "$archive"
+              "$file_id" --output "$archive"
             python3 "$verifier" "$archive" || {
               echo 'ERROR: Drive file does not contain the verified v2.10.302 source. Upload the original ZIP without extracting it.' >&2
               exit 1
