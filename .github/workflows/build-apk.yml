@@ -1,4 +1,4 @@
-name: Build signed CSA APK v2.10.293 (Google Drive)
+name: Build signed CSA APK v2.10.293 (compile-fixed Drive ZIP)
 
 on:
   workflow_dispatch:
@@ -28,11 +28,11 @@ jobs:
       - name: Download v2.10.293 source from Google Drive
         shell: bash
         env:
-          SOURCE_URL: https://drive.google.com/file/d/1aS1zq9EqrIAZWvM3tCuuC5IiVF_yuoWv/view?usp=drivesdk
+          SOURCE_URL: https://drive.google.com/file/d/1OBLDgiSxHrejWp4uM-d7axYety57eRag/view?usp=drivesdk
         run: |
           set -euo pipefail
           archive="$RUNNER_TEMP/CateringScreenAssistant-v2.10.293-Source.zip"
-          direct_url='https://drive.google.com/uc?export=download&id=1aS1zq9EqrIAZWvM3tCuuC5IiVF_yuoWv'
+          direct_url='https://drive.google.com/uc?export=download&id=1OBLDgiSxHrejWp4uM-d7axYety57eRag'
 
           # Small public Drive files usually download directly. If Google
           # returns an HTML confirmation page, use gdown as a fallback.
@@ -49,10 +49,9 @@ jobs:
               --fuzzy "$SOURCE_URL" --output "$archive"
           fi
 
-          # Verifies that the Drive file is exactly the v2.10.293 package
-          # provided in this conversation, not HTML or an older ZIP.
+          # Verify the repaired v2.10.293 complete source ZIP; block older/broken uploads.
           printf '%s  %s\n' \
-            'e650ebc3054a468a1c418adf26c06b98f50e62064f142d08e0a6d605c760e83a' \
+            '0d9c642f41ab5b12768968f1999447468467abf6250498dc1eb0593025232bc3' \
             "$archive" | sha256sum --check
           unzip -tq "$archive"
           mkdir -p "$RUNNER_TEMP/csa-source"
@@ -62,7 +61,12 @@ jobs:
           test -f "$project/settings.gradle"
           test -f "$project/run-regression-tests.sh"
           echo "CSA_PROJECT_DIR=$project" >> "$GITHUB_ENV"
-          echo 'Verified v2.10.293 source ZIP and project layout.'
+          echo 'Verified v2.10.293 COMPILE-FIX ZIP and project layout.'
+          if grep -Fq 'if(indexed==null && !service.liveOfferSignal(' \
+              "$project/app/src/main/java/com/local/cateringscreenassistant/OcrMonitorService.java"; then
+            echo 'Old Java scope error is still present; refusing to compile' >&2
+            exit 1
+          fi
 
       # GitHub-hosted ubuntu-24.04 already ships Android SDK 35 and
       # Build Tools 35.0.0. Avoid re-installing command-line tools.
