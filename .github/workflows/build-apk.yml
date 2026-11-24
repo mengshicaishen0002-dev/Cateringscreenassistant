@@ -11,7 +11,7 @@ on:
         description: 'Paste the public Google Drive share URL of v2.10.302 source ZIP'
         required: true
         type: string
-        default: 'https://drive.google.com/file/d/1CLl4QiicR34JOzvNIi1M98p3ca1QMziY/view?usp=drivesdk'
+        default: 'https://drive.google.com/file/d/10XcGDSDvsT3uBnid6wl0_rYxEPCpuCw0/view?usp=drivesdk'
 
 permissions:
   contents: read
@@ -34,7 +34,7 @@ jobs:
       - name: Download v2.10.302 source from Google Drive
         shell: bash
         env:
-          SOURCE_URL: ${{ inputs.source_url || 'https://drive.google.com/file/d/1CLl4QiicR34JOzvNIi1M98p3ca1QMziY/view?usp=drivesdk' }}
+          SOURCE_URL: ${{ inputs.source_url || 'https://drive.google.com/file/d/10XcGDSDvsT3uBnid6wl0_rYxEPCpuCw0/view?usp=drivesdk' }}
         run: |
           set -euo pipefail
           archive="$RUNNER_TEMP/CateringScreenAssistant-v2.10.302-Source.zip"
