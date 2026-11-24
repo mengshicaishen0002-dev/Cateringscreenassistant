@@ -1,4 +1,4 @@
-name: Build signed CSA APK v2.10.302 (Google Drive)
+name: Build signed CSA APK v2.10.302 (verified source)
 
 on:
   push:
@@ -51,30 +51,59 @@ jobs:
           )"
           direct_url="https://drive.google.com/uc?export=download&id=$file_id"
 
-          # Small public Drive files usually download directly. If Google
-          # returns an HTML confirmation page, use gdown as a fallback.
+          # Validate exact contents even if the archive was re-compressed.
+          verifier="$RUNNER_TEMP/verify-v302.py"
+          cat > "$verifier" <<'PY_VERIFY'
+          import hashlib, json, pathlib, stat, sys, zipfile
+          archive = pathlib.Path(sys.argv[1])
+          expected_zip = '37fd82fd2a0db3df3413ab3ca1a7fc6af689a212721f14920e4c05dd6760e2f0'
+          expected_content = '272f3455760f97c2b5d6f53c91cd3c214c69e331a7ff10b36d23f29f2962f18d'
+          actual = hashlib.sha256(archive.read_bytes()).hexdigest()
+          print('Expected archive SHA256:', expected_zip)
+          print('Actual archive SHA256:  ', actual)
+          print('Downloaded bytes:', archive.stat().st_size)
+          try:
+              with zipfile.ZipFile(archive) as z:
+                  items = z.infolist()
+                  if len(items) > 500 or sum(i.file_size for i in items) > 10_000_000:
+                      raise ValueError('Unexpected ZIP size or entry count')
+                  names = set()
+                  manifest = []
+                  for i in items:
+                      p = pathlib.PurePosixPath(i.filename)
+                      if p.is_absolute() or '..' in p.parts or '\\' in i.filename or i.filename in names or stat.S_ISLNK(i.external_attr >> 16):
+                          raise ValueError('Unsafe or duplicate ZIP entry')
+                      names.add(i.filename)
+                      if not i.is_dir():
+                          manifest.append((i.filename, hashlib.sha256(z.read(i)).hexdigest()))
+                  digest = hashlib.sha256(json.dumps(sorted(manifest), ensure_ascii=True, separators=(',', ':')).encode()).hexdigest()
+                  print('Source file count:', len(manifest))
+                  print('Expected source content SHA256:', expected_content)
+                  print('Actual source content SHA256:  ', digest)
+                  if digest != expected_content:
+                      raise ValueError('Source files or project paths differ from verified v2.10.302')
+                  print('PASS: exact original ZIP' if actual == expected_zip else 'PASS: repacked ZIP with identical file paths and contents')
+          except (OSError, ValueError, zipfile.BadZipFile, RuntimeError) as e:
+              print('ERROR:', e, file=sys.stderr)
+              sys.exit(1)
+          PY_VERIFY
           if ! curl --fail --location --silent --show-error --retry 3 \
               --connect-timeout 25 --max-time 180 \
               "$direct_url" --output "$archive" \
-              || ! unzip -tq "$archive" >/dev/null 2>&1; then
-            echo 'Trying Google Drive downloader fallback...'
+              || ! python3 "$verifier" "$archive"; then
+            echo 'Direct download did not match; trying Google Drive downloader fallback...'
             rm -f "$archive"
             python3 -m venv "$RUNNER_TEMP/csa-gdown-venv"
             "$RUNNER_TEMP/csa-gdown-venv/bin/pip" install \
               --disable-pip-version-check --quiet gdown
             "$RUNNER_TEMP/csa-gdown-venv/bin/gdown" \
               --fuzzy "$SOURCE_URL" --output "$archive"
-          fi
-
-          # Verify the exact v2.10.302 source ZIP; block older or mismatched uploads.
-          printf '%s  %s\n' \
-            '37fd82fd2a0db3df3413ab3ca1a7fc6af689a212721f14920e4c05dd6760e2f0' \
-            "$archive" | sha256sum --check || {
-              echo 'ERROR: Downloaded ZIP is not the v2.10.302 package. Check the Drive link; this is NOT an APK parse failure.' >&2
+            python3 "$verifier" "$archive" || {
+              echo 'ERROR: Drive file does not contain the verified v2.10.302 source. Upload the original ZIP without extracting it.' >&2
               exit 1
             }
+          fi
           unzip -tq "$archive"
-          echo "Verified ZIP SHA256: $(sha256sum "$archive" | cut -d' ' -f1)"
           mkdir -p "$RUNNER_TEMP/csa-source"
           unzip -q "$archive" -d "$RUNNER_TEMP/csa-source"
           project="$RUNNER_TEMP/csa-source/CateringScreenAssistant-v2.10.302"
