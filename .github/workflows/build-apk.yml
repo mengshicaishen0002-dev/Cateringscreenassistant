@@ -1,4 +1,4 @@
-name: Build signed CSA APK v2.10.301 (Google Drive)
+name: Build signed CSA APK v2.10.302 (Google Drive)
 
 on:
   push:
@@ -8,10 +8,10 @@ on:
   workflow_dispatch:
     inputs:
       source_url:
-        description: 'Paste the public Google Drive share URL of v2.10.301 source ZIP'
+        description: 'Paste the public Google Drive share URL of v2.10.302 source ZIP'
         required: true
         type: string
-        default: 'https://drive.google.com/file/d/16gGomh_SFoF4qJ8-SoSUXAFqktxa1bSj/view?usp=drivesdk'
+        default: 'https://drive.google.com/file/d/1CLl4QiicR34JOzvNIi1M98p3ca1QMziY/view?usp=drivesdk'
 
 permissions:
   contents: read
@@ -31,13 +31,13 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Download v2.10.301 source from Google Drive
+      - name: Download v2.10.302 source from Google Drive
         shell: bash
         env:
-          SOURCE_URL: ${{ inputs.source_url || 'https://drive.google.com/file/d/16gGomh_SFoF4qJ8-SoSUXAFqktxa1bSj/view?usp=drivesdk' }}
+          SOURCE_URL: ${{ inputs.source_url || 'https://drive.google.com/file/d/1CLl4QiicR34JOzvNIi1M98p3ca1QMziY/view?usp=drivesdk' }}
         run: |
           set -euo pipefail
-          archive="$RUNNER_TEMP/CateringScreenAssistant-v2.10.301-Source.zip"
+          archive="$RUNNER_TEMP/CateringScreenAssistant-v2.10.302-Source.zip"
           
           # Fail rather than silently building another version.
           file_id="$(python3 - "$SOURCE_URL" <<'PY_DRIVE_ID'
@@ -66,25 +66,25 @@ jobs:
               --fuzzy "$SOURCE_URL" --output "$archive"
           fi
 
-          # Verify the exact v2.10.301 source ZIP; block older or mismatched uploads.
+          # Verify the exact v2.10.302 source ZIP; block older or mismatched uploads.
           printf '%s  %s\n' \
-            '8b0752e5bf09585d3cea26eb6f27a23792633b0045b9fb71c07c9914cdc3b975' \
+            '37fd82fd2a0db3df3413ab3ca1a7fc6af689a212721f14920e4c05dd6760e2f0' \
             "$archive" | sha256sum --check || {
-              echo 'ERROR: Downloaded ZIP is not the v2.10.301 package. Check the Drive link; this is NOT an APK parse failure.' >&2
+              echo 'ERROR: Downloaded ZIP is not the v2.10.302 package. Check the Drive link; this is NOT an APK parse failure.' >&2
               exit 1
             }
           unzip -tq "$archive"
           echo "Verified ZIP SHA256: $(sha256sum "$archive" | cut -d' ' -f1)"
           mkdir -p "$RUNNER_TEMP/csa-source"
           unzip -q "$archive" -d "$RUNNER_TEMP/csa-source"
-          project="$RUNNER_TEMP/csa-source/CateringScreenAssistant-v2.10.301"
+          project="$RUNNER_TEMP/csa-source/CateringScreenAssistant-v2.10.302"
           test -f "$project/app/build.gradle"
           test -f "$project/settings.gradle"
           test -f "$project/run-regression-tests.sh"
-          grep -Fq 'versionCode 327' "$project/app/build.gradle"
-          grep -Fq 'versionName "2.10.301"' "$project/app/build.gradle"
+          grep -Fq 'versionCode 328' "$project/app/build.gradle"
+          grep -Fq 'versionName "2.10.302"' "$project/app/build.gradle"
           echo "CSA_PROJECT_DIR=$project" >> "$GITHUB_ENV"
-          echo 'Verified v2.10.301 source ZIP and project layout.'
+          echo 'Verified v2.10.302 source ZIP and project layout.'
           if grep -Fq 'if(indexed==null && !service.liveOfferSignal(' \
               "$project/app/src/main/java/com/local/cateringscreenassistant/OcrMonitorService.java"; then
             echo 'Old Java scope error is still present; refusing to compile' >&2
@@ -131,7 +131,7 @@ jobs:
           keytool -list -keystore "$CSA_PROJECT_DIR/csa-upgrade.keystore" \
             -storepass 'csa-update-2026' -alias csa >/dev/null
 
-      - name: Run v2.10.301 regression tests
+      - name: Run v2.10.302 regression tests
         shell: bash
         run: bash "$CSA_PROJECT_DIR/run-regression-tests.sh"
 
@@ -144,7 +144,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CateringScreenAssistant-v2.10.301-Signed-APK
+          name: CateringScreenAssistant-v2.10.302-Signed-APK
           path: ${{ env.CSA_PROJECT_DIR }}/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 30
