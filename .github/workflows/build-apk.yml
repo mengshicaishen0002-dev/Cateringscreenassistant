@@ -64,14 +64,24 @@ jobs:
           echo "CSA_PROJECT_DIR=$project" >> "$GITHUB_ENV"
           echo 'Verified v2.10.291 source ZIP and project layout.'
 
-      - name: Install Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK 35 and Build Tools
+      # GitHub-hosted ubuntu-24.04 already ships Android SDK 35 and
+      # Build Tools 35.0.0. Avoid re-installing command-line tools.
+      - name: Verify preinstalled Android SDK 35
         shell: bash
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+          set -euo pipefail
+          sdk="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          if [ ! -f "$sdk/platforms/android-35/android.jar" ]; then
+            echo "Missing Android SDK 35 at $sdk" >&2
+            exit 1
+          fi
+          if [ ! -x "$sdk/build-tools/35.0.0/aapt2" ]; then
+            echo "Missing Android Build Tools 35.0.0 at $sdk" >&2
+            exit 1
+          fi
+          echo "ANDROID_HOME=$sdk" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$sdk" >> "$GITHUB_ENV"
+          echo 'Using preinstalled Android SDK 35 / Build Tools 35.0.0.'
 
       - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
