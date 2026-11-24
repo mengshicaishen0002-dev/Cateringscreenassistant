@@ -1,1 +1,113 @@
+name: Build signed CSA APK v2.10.291 (Google Drive)
 
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-apk.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  android-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out GitHub repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Download v2.10.291 source from Google Drive
+        shell: bash
+        env:
+          SOURCE_URL: https://drive.google.com/file/d/1iMcenCiG5-OFGWEAD9Gmkh1LYB6mLCD8/view?usp=drivesdk
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/CateringScreenAssistant-v2.10.291-Source.zip"
+          direct_url='https://drive.google.com/uc?export=download&id=1iMcenCiG5-OFGWEAD9Gmkh1LYB6mLCD8'
+
+          # Small public Drive files usually download directly. If Google
+          # returns an HTML confirmation page, use gdown as a fallback.
+          if ! curl --fail --location --silent --show-error --retry 3 \
+              --connect-timeout 25 --max-time 180 \
+              "$direct_url" --output "$archive" \
+              || ! unzip -tq "$archive" >/dev/null 2>&1; then
+            echo 'Trying Google Drive downloader fallback...'
+            rm -f "$archive"
+            python3 -m venv "$RUNNER_TEMP/csa-gdown-venv"
+            "$RUNNER_TEMP/csa-gdown-venv/bin/pip" install \
+              --disable-pip-version-check --quiet gdown
+            "$RUNNER_TEMP/csa-gdown-venv/bin/gdown" \
+              --fuzzy "$SOURCE_URL" --output "$archive"
+          fi
+
+          # Verifies that the Drive file is exactly the v2.10.291 package
+          # provided in this conversation, not HTML or an older ZIP.
+          printf '%s  %s\n' \
+            '97b1ece7223879062406fe1a8c773d394c2721d0789ce4b8760ebf2b38317566' \
+            "$archive" | sha256sum --check
+          unzip -tq "$archive"
+          mkdir -p "$RUNNER_TEMP/csa-source"
+          unzip -q "$archive" -d "$RUNNER_TEMP/csa-source"
+          project="$RUNNER_TEMP/csa-source/CateringScreenAssistant-v2.10.291"
+          test -f "$project/app/build.gradle"
+          test -f "$project/settings.gradle"
+          test -f "$project/run-regression-tests.sh"
+          echo "CSA_PROJECT_DIR=$project" >> "$GITHUB_ENV"
+          echo 'Verified v2.10.291 source ZIP and project layout.'
+
+      - name: Install Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 35 and Build Tools
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Restore APK upgrade-signing key
+        shell: bash
+        env:
+          CSA_KEYSTORE_BASE64: ${{ secrets.CSA_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "$CSA_KEYSTORE_BASE64" ]; then
+            echo 'Missing GitHub Actions secret: CSA_KEYSTORE_BASE64' >&2
+            exit 1
+          fi
+          printf '%s' "$CSA_KEYSTORE_BASE64" | base64 --decode \
+            > "$CSA_PROJECT_DIR/csa-upgrade.keystore"
+          chmod 600 "$CSA_PROJECT_DIR/csa-upgrade.keystore"
+          keytool -list -keystore "$CSA_PROJECT_DIR/csa-upgrade.keystore" \
+            -storepass 'csa-update-2026' -alias csa >/dev/null
+
+      - name: Run v2.10.291 regression tests
+        shell: bash
+        run: bash "$CSA_PROJECT_DIR/run-regression-tests.sh"
+
+      - name: Compile signed release APK
+        shell: bash
+        run: |
+          gradle --no-daemon --stacktrace --project-dir "$CSA_PROJECT_DIR" \
+            :app:assembleRelease
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CateringScreenAssistant-v2.10.291-Signed-APK
+          path: ${{ env.CSA_PROJECT_DIR }}/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 30
