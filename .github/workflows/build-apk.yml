@@ -1,4 +1,4 @@
-name: Build signed CSA APK v2.10.293 (compile-fixed Drive ZIP)
+name: Build signed CSA APK v2.10.295 (Google Drive)
 
 on:
   workflow_dispatch:
@@ -25,14 +25,14 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Download v2.10.293 source from Google Drive
+      - name: Download v2.10.295 source from Google Drive
         shell: bash
         env:
-          SOURCE_URL: https://drive.google.com/file/d/1OBLDgiSxHrejWp4uM-d7axYety57eRag/view?usp=drivesdk
+          SOURCE_URL: https://drive.google.com/file/d/1oIS7F-DLoyKeuv0l8HSxoPIGVeobkT_p/view?usp=drivesdk
         run: |
           set -euo pipefail
-          archive="$RUNNER_TEMP/CateringScreenAssistant-v2.10.293-Source.zip"
-          direct_url='https://drive.google.com/uc?export=download&id=1OBLDgiSxHrejWp4uM-d7axYety57eRag'
+          archive="$RUNNER_TEMP/CateringScreenAssistant-v2.10.295-Source.zip"
+          direct_url='https://drive.google.com/uc?export=download&id=1oIS7F-DLoyKeuv0l8HSxoPIGVeobkT_p'
 
           # Small public Drive files usually download directly. If Google
           # returns an HTML confirmation page, use gdown as a fallback.
@@ -49,19 +49,19 @@ jobs:
               --fuzzy "$SOURCE_URL" --output "$archive"
           fi
 
-          # Verify the repaired v2.10.293 complete source ZIP; block older/broken uploads.
+          # Verify the exact v2.10.295 source ZIP; block older or mismatched uploads.
           printf '%s  %s\n' \
-            '0d9c642f41ab5b12768968f1999447468467abf6250498dc1eb0593025232bc3' \
+            '3fa996c102f783ff1b3b97af42b23de247628d34ba6982023de1537a4cddcad7' \
             "$archive" | sha256sum --check
           unzip -tq "$archive"
           mkdir -p "$RUNNER_TEMP/csa-source"
           unzip -q "$archive" -d "$RUNNER_TEMP/csa-source"
-          project="$RUNNER_TEMP/csa-source/CateringScreenAssistant-v2.10.293"
+          project="$RUNNER_TEMP/csa-source/CateringScreenAssistant-v2.10.295"
           test -f "$project/app/build.gradle"
           test -f "$project/settings.gradle"
           test -f "$project/run-regression-tests.sh"
           echo "CSA_PROJECT_DIR=$project" >> "$GITHUB_ENV"
-          echo 'Verified v2.10.293 COMPILE-FIX ZIP and project layout.'
+          echo 'Verified v2.10.295 source ZIP and project layout.'
           if grep -Fq 'if(indexed==null && !service.liveOfferSignal(' \
               "$project/app/src/main/java/com/local/cateringscreenassistant/OcrMonitorService.java"; then
             echo 'Old Java scope error is still present; refusing to compile' >&2
@@ -108,7 +108,7 @@ jobs:
           keytool -list -keystore "$CSA_PROJECT_DIR/csa-upgrade.keystore" \
             -storepass 'csa-update-2026' -alias csa >/dev/null
 
-      - name: Run v2.10.293 regression tests
+      - name: Run v2.10.295 regression tests
         shell: bash
         run: bash "$CSA_PROJECT_DIR/run-regression-tests.sh"
 
@@ -121,7 +121,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CateringScreenAssistant-v2.10.293-Signed-APK
+          name: CateringScreenAssistant-v2.10.295-Signed-APK
           path: ${{ env.CSA_PROJECT_DIR }}/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 30
