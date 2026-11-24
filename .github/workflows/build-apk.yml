@@ -1,4 +1,4 @@
-name: Build signed CSA APK v2.10.291 (Google Drive)
+name: Build signed CSA APK v2.10.292 (Google Drive)
 
 on:
   workflow_dispatch:
@@ -25,14 +25,14 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Download v2.10.291 source from Google Drive
+      - name: Download v2.10.292 source from Google Drive
         shell: bash
         env:
-          SOURCE_URL: https://drive.google.com/file/d/1iMcenCiG5-OFGWEAD9Gmkh1LYB6mLCD8/view?usp=drivesdk
+          SOURCE_URL: https://drive.google.com/file/d/19T-K_DgmCEkcn4F0Ckq9pSDZRYKTVVet/view?usp=drivesdk
         run: |
           set -euo pipefail
-          archive="$RUNNER_TEMP/CateringScreenAssistant-v2.10.291-Source.zip"
-          direct_url='https://drive.google.com/uc?export=download&id=1iMcenCiG5-OFGWEAD9Gmkh1LYB6mLCD8'
+          archive="$RUNNER_TEMP/CateringScreenAssistant-v2.10.292-Source.zip"
+          direct_url='https://drive.google.com/uc?export=download&id=19T-K_DgmCEkcn4F0Ckq9pSDZRYKTVVet'
 
           # Small public Drive files usually download directly. If Google
           # returns an HTML confirmation page, use gdown as a fallback.
@@ -49,20 +49,20 @@ jobs:
               --fuzzy "$SOURCE_URL" --output "$archive"
           fi
 
-          # Verifies that the Drive file is exactly the v2.10.291 package
+          # Verifies that the Drive file is exactly the v2.10.292 package
           # provided in this conversation, not HTML or an older ZIP.
           printf '%s  %s\n' \
-            '97b1ece7223879062406fe1a8c773d394c2721d0789ce4b8760ebf2b38317566' \
+            'b58bdb83e6e8bd337faf9e0d27356ba2fcb32468495f68b32c82582d696f8fa9' \
             "$archive" | sha256sum --check
           unzip -tq "$archive"
           mkdir -p "$RUNNER_TEMP/csa-source"
           unzip -q "$archive" -d "$RUNNER_TEMP/csa-source"
-          project="$RUNNER_TEMP/csa-source/CateringScreenAssistant-v2.10.291"
+          project="$RUNNER_TEMP/csa-source/CateringScreenAssistant-v2.10.292"
           test -f "$project/app/build.gradle"
           test -f "$project/settings.gradle"
           test -f "$project/run-regression-tests.sh"
           echo "CSA_PROJECT_DIR=$project" >> "$GITHUB_ENV"
-          echo 'Verified v2.10.291 source ZIP and project layout.'
+          echo 'Verified v2.10.292 source ZIP and project layout.'
 
       # GitHub-hosted ubuntu-24.04 already ships Android SDK 35 and
       # Build Tools 35.0.0. Avoid re-installing command-line tools.
@@ -104,7 +104,7 @@ jobs:
           keytool -list -keystore "$CSA_PROJECT_DIR/csa-upgrade.keystore" \
             -storepass 'csa-update-2026' -alias csa >/dev/null
 
-      - name: Run v2.10.291 regression tests
+      - name: Run v2.10.292 regression tests
         shell: bash
         run: bash "$CSA_PROJECT_DIR/run-regression-tests.sh"
 
@@ -117,7 +117,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CateringScreenAssistant-v2.10.291-Signed-APK
+          name: CateringScreenAssistant-v2.10.292-Signed-APK
           path: ${{ env.CSA_PROJECT_DIR }}/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 30
