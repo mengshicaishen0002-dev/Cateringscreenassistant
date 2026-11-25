@@ -1,293 +1,59 @@
-name: Build signed CSA APK v2.10.306 (verified source)
-
+name: Build signed CSA APK v2.10.307 candidate
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
       - .github/workflows/build-apk.yml
-  workflow_dispatch:
-    inputs:
-      source_url:
-        description: 'Paste the public Google Drive share URL of v2.10.306 source ZIP'
-        required: false
-        type: string
-        default: 'https://drive.google.com/file/d/1wQgTkKu5DTeT2o02JhFEpPJbgb_l0qu_/view?usp=drivesdk'
-
+      - CateringScreenAssistant-v2.10.307-Source.zip
 permissions:
   contents: read
-
 jobs:
   android-release:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-
     steps:
-      - name: Check out GitHub repository
-        uses: actions/checkout@v4
-
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
-      - name: Download v2.10.306 source from Google Drive
-        shell: bash
-        env:
-          SOURCE_URL: ${{ inputs.source_url || 'https://drive.google.com/file/d/1wQgTkKu5DTeT2o02JhFEpPJbgb_l0qu_/view?usp=drivesdk' }}
-        run: |
-          set -euo pipefail
-          archive="$RUNNER_TEMP/CateringScreenAssistant-v2.10.306-Source.zip"
-          
-          # Fail rather than silently building another version.
-          file_id="$(python3 - "$SOURCE_URL" <<'PY_DRIVE_ID'
-          import re,sys
-          url=sys.argv[1]
-          m=re.search(r'/file/d/([^/?&#]+)',url) or re.search(r'[?&]id=([^&#]+)',url)
-          if not m:
-              raise SystemExit('ERROR: input source_url must be a Google Drive file share link')
-          print(m.group(1))
-          PY_DRIVE_ID
-          )"
-          direct_url="https://drive.google.com/uc?export=download&id=$file_id"
-
-          # Validate exact contents even if the archive was re-compressed.
-          verifier="$RUNNER_TEMP/verify-v306.py"
-          cat > "$verifier" <<'PY_VERIFY'
-          import hashlib, json, pathlib, stat, sys, zipfile
-          archive = pathlib.Path(sys.argv[1])
-          expected_zip = 'e62b9700dc01d32874eaf754610122f8db55a55385499767bcec305e1f3d5cec'
-          expected_content = '4e37bb34530cbc78a97c63695e95b0bfda4251606924a6ad7605962447547030'
-          actual = hashlib.sha256(archive.read_bytes()).hexdigest()
-          print('Expected archive SHA256:', expected_zip)
-          print('Actual archive SHA256:  ', actual)
-          print('Downloaded bytes:', archive.stat().st_size)
-          try:
-              with zipfile.ZipFile(archive) as z:
-                  items = z.infolist()
-                  if len(items) > 500 or sum(i.file_size for i in items) > 10_000_000:
-                      raise ValueError('Unexpected ZIP size or entry count')
-                  names = set()
-                  manifest = []
-                  for i in items:
-                      p = pathlib.PurePosixPath(i.filename)
-                      if p.is_absolute() or '..' in p.parts or '\\' in i.filename or i.filename in names or stat.S_ISLNK(i.external_attr >> 16):
-                          raise ValueError('Unsafe or duplicate ZIP entry')
-                      names.add(i.filename)
-                      if not i.is_dir():
-                          manifest.append((i.filename, hashlib.sha256(z.read(i)).hexdigest()))
-                  digest = hashlib.sha256(json.dumps(sorted(manifest), ensure_ascii=True, separators=(',', ':')).encode()).hexdigest()
-                  print('Source file count:', len(manifest))
-                  print('Expected source content SHA256:', expected_content)
-                  print('Actual source content SHA256:  ', digest)
-                  if digest != expected_content:
-                      raise ValueError('Source files or project paths differ from verified v2.10.306')
-                  print('PASS: exact original ZIP' if actual == expected_zip else 'PASS: repacked ZIP with identical file paths and contents')
-          except (OSError, ValueError, zipfile.BadZipFile, RuntimeError) as e:
-              print('ERROR:', e, file=sys.stderr)
-              sys.exit(1)
-          PY_VERIFY
-          if ! curl --fail --location --silent --show-error --retry 3 \
-              --connect-timeout 25 --max-time 180 \
-              "$direct_url" --output "$archive" \
-              || ! python3 "$verifier" "$archive"; then
-            echo 'Direct download did not match; trying Google Drive downloader fallback...'
-            rm -f "$archive"
-            python3 -m venv "$RUNNER_TEMP/csa-gdown-venv"
-            "$RUNNER_TEMP/csa-gdown-venv/bin/pip" install \
-              --disable-pip-version-check --quiet "gdown==6.5.2"
-            "$RUNNER_TEMP/csa-gdown-venv/bin/gdown" \
-              "$file_id" --output "$archive"
-            python3 "$verifier" "$archive" || {
-              echo 'ERROR: Drive file does not contain the verified v2.10.306 source. Upload the original ZIP without extracting it.' >&2
-              exit 1
-            }
-          fi
-          unzip -tq "$archive"
-          mkdir -p "$RUNNER_TEMP/csa-source"
-          unzip -q "$archive" -d "$RUNNER_TEMP/csa-source"
-          project="$RUNNER_TEMP/csa-source/CateringScreenAssistant-v2.10.306"
-          test -f "$project/app/build.gradle"
-          test -f "$project/settings.gradle"
-          test -f "$project/run-regression-tests.sh"
-          grep -Fq 'versionCode 332' "$project/app/build.gradle"
-          grep -Fq 'versionName "2.10.306"' "$project/app/build.gradle"
-          echo "CSA_PROJECT_DIR=$project" >> "$GITHUB_ENV"
-          echo 'Verified v2.10.306 source ZIP and project layout.'
-          if grep -Fq 'if(indexed==null && !service.liveOfferSignal(' \
-              "$project/app/src/main/java/com/local/cateringscreenassistant/OcrMonitorService.java"; then
-            echo 'Old Java scope error is still present; refusing to compile' >&2
-            exit 1
-          fi
-
-      # GitHub-hosted ubuntu-24.04 already ships Android SDK 35 and
-      # Build Tools 35.0.0. Avoid re-installing command-line tools.
-      - name: Verify preinstalled Android SDK 35
-        shell: bash
-        run: |
-          set -euo pipefail
-          sdk="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
-          if [ ! -f "$sdk/platforms/android-35/android.jar" ]; then
-            echo "Missing Android SDK 35 at $sdk" >&2
-            exit 1
-          fi
-          if [ ! -x "$sdk/build-tools/35.0.0/aapt2" ]; then
-            echo "Missing Android Build Tools 35.0.0 at $sdk" >&2
-            exit 1
-          fi
-          echo "ANDROID_HOME=$sdk" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$sdk" >> "$GITHUB_ENV"
-          echo 'Using preinstalled Android SDK 35 / Build Tools 35.0.0.'
-
-      - name: Set up Gradle 8.9
-        uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-
-      - name: Restore APK upgrade-signing key
+      - name: Verify and unpack exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum --check <<'HASH'
+          b7d44203dfefc1fa170769f08744635ffdc7273fedcca3da6bf91860794dfa09  CateringScreenAssistant-v2.10.307-Source.zip
+          HASH
+          unzip -tq CateringScreenAssistant-v2.10.307-Source.zip
+          unzip -q CateringScreenAssistant-v2.10.307-Source.zip -d "$RUNNER_TEMP/csa-source"
+          project="$RUNNER_TEMP/csa-source/CateringScreenAssistant-v2.10.307"
+          grep -Fq 'versionCode 333' "$project/app/build.gradle"
+          grep -Fq 'versionName "2.10.307"' "$project/app/build.gradle"
+          echo "CSA_PROJECT_DIR=$project" >> "$GITHUB_ENV"
+          test -f "$ANDROID_HOME/platforms/android-35/android.jar"
+          test -x "$ANDROID_HOME/build-tools/35.0.0/aapt2"
+      - name: Restore existing upgrade signing key
         shell: bash
         env:
           CSA_KEYSTORE_BASE64: ${{ secrets.CSA_KEYSTORE_BASE64 }}
         run: |
           set -euo pipefail
-          if [ -z "$CSA_KEYSTORE_BASE64" ]; then
-            echo 'Missing GitHub Actions secret: CSA_KEYSTORE_BASE64' >&2
-            exit 1
-          fi
-          printf '%s' "$CSA_KEYSTORE_BASE64" | base64 --decode \
-            > "$CSA_PROJECT_DIR/csa-upgrade.keystore"
+          test -n "$CSA_KEYSTORE_BASE64"
+          printf '%s' "$CSA_KEYSTORE_BASE64" | base64 --decode > "$CSA_PROJECT_DIR/csa-upgrade.keystore"
           chmod 600 "$CSA_PROJECT_DIR/csa-upgrade.keystore"
-          keytool -list -keystore "$CSA_PROJECT_DIR/csa-upgrade.keystore" \
-            -storepass 'csa-update-2026' -alias csa >/dev/null
-
-      - name: Apply v306 test-only concurrency correction
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$CSA_PROJECT_DIR"
-          sha256sum --check <<'CSA_ORIGINAL_TESTS'
-          2e3d1c3255b853d5057c43c38d825abc968e45db2bcde07d5d59399c327335ac  tools/check_index_pipeline.py
-          e439d5e6003080557088c6c5c1904bd2337af724f92504eb2f73b7d428bb0294  tools/check_speed_first_index.py
-          CSA_ORIGINAL_TESTS
-          patch --batch --forward --fuzz=0 -p1 <<'CSA_TEST_PATCH'
-          --- a/tools/check_index_pipeline.py
-          +++ b/tools/check_index_pipeline.py
-          @@ -17,7 +17,8 @@
-            CountDownLatch textRead;int textReads,descriptionReads,boundsReads;AccessibilityNodeInfo parent;AccessibilityNodeInfo getParent(){return parent;}AccessibilityNodeInfo(String t,Rect b){text=t;bounds=b;}CharSequence getText(){textReads++;if(textRead!=null)textRead.countDown();return text;}CharSequence getContentDescription(){descriptionReads++;return desc;}CharSequence getPackageName(){return pkg;}
-            static AccessibilityNodeInfo obtain(AccessibilityNodeInfo n){return n;}boolean visible=true;boolean isEnabled(){return enabled;}boolean isVisibleToUser(){return visible;}boolean refreshOK=true,mutateOnRefresh,stopOnRefresh,windowOnRefresh;CountDownLatch gate,entered;int refreshCalls;long refreshCost=1;Runnable refreshHook;boolean refresh(){refreshCalls++;if(refreshHook!=null)refreshHook.run();if(entered!=null)entered.countDown();if(gate!=null)try{gate.await();}catch(InterruptedException e){Thread.currentThread().interrupt();return false;}SystemClock.advance(refreshCost);if(stopOnRefresh)OcrMonitorService.monitoring=false;if(windowOnRefresh)TapAccessibilityService.WINDOW_TRANSITION_EPOCH.incrementAndGet();if(mutateOnRefresh){TapAccessibilityService.UI_GENERATION.incrementAndGet();mutateOnRefresh=false;}return refreshOK;}
-            void getBoundsInScreen(Rect b){boundsReads++;if(this==TapAccessibilityService.INSTANCE.get().root)TapAccessibilityService.boundReads++;b.set(bounds);}int getWindowId(){return windowId;}void recycle(){}
-          - List<AccessibilityNodeInfo> findAccessibilityNodeInfosByText(String q){TapAccessibilityService.queries.add(q);
-          + final List<String> queryLog=TapAccessibilityService.queries;
-          + List<AccessibilityNodeInfo> findAccessibilityNodeInfosByText(String q){queryLog.add(q);
-            if(TapAccessibilityService.queryGate!=null && TapAccessibilityService.gatedQueries.contains(q)) {
-             TapAccessibilityService.queryEntered.countDown();
-             try{if(!TapAccessibilityService.queryGate.await(2,TimeUnit.SECONDS))throw new IllegalStateException("query coordination");}
-          @@ -107,7 +108,7 @@
-             if(OcrMonitorService.proof.pending.isEmpty()&&OcrMonitorService.clicks.pending.isEmpty())return;
-            }throw new AssertionError("renewal loop did not quiesce");}
-            static Rect button=new Rect(689,1094,840,1151);static String last;
-          - static TapAccessibilityService setup(){OcrMonitorService.proof=new Handler();OcrMonitorService.clicks=new Handler();pressureFinalHook=null;clearAcceptResumeNodes();rootGate=rootEntered=null;clearIndexedRootReceipt();TapAccessibilityService old=INSTANCE.get();if(old!=null){old.firstShotIndexBatch.close();old.witnessReadBatch.close();old.ownedResumeReadBatch.close();old.outcomePageReadBatch.close();old.outcomeDeadlineReads.close();old.successDeadlineReads.close();if(old.rootReadAhead!=null)old.rootReadAhead.shutdownNow();}IndexedWitness prior=LAST_INDEXED_WITNESS.getAndSet(null);if(prior!=null)prior.close();TapAccessibilityService s=new TapAccessibilityService();s.firstShotIndexBatch.warmUp();s.witnessReadBatch.warmUp();s.ownedResumeReadBatch.warmUp();s.outcomePageReadBatch.warmUp();CURRENT_SURFACE_GATE=new PageOutcomePolicy.SurfaceGate();INSTANCE.set(s);OcrMonitorService.rejectNumbers=false;routedReject="";OcrMonitorService.monitoring=true;WINDOW_TRANSITION_EPOCH.set(0);s.root=new AccessibilityNodeInfo("",new Rect(0,0,1080,2400));
-          + static TapAccessibilityService setup(){OcrMonitorService.proof=new Handler();OcrMonitorService.clicks=new Handler();pressureFinalHook=null;clearAcceptResumeNodes();rootGate=rootEntered=null;clearIndexedRootReceipt();TapAccessibilityService old=INSTANCE.get();if(old!=null){old.firstShotIndexBatch.close();old.witnessReadBatch.close();old.ownedResumeReadBatch.close();old.outcomePageReadBatch.close();old.outcomeDeadlineReads.close();old.successDeadlineReads.close();if(old.rootReadAhead!=null)old.rootReadAhead.shutdownNow();}IndexedWitness prior=LAST_INDEXED_WITNESS.getAndSet(null);if(prior!=null)prior.close();TapAccessibilityService s=new TapAccessibilityService();s.firstShotIndexBatch.warmUp();s.witnessReadBatch.warmUp();s.ownedResumeReadBatch.warmUp();s.outcomePageReadBatch.warmUp();CURRENT_SURFACE_GATE=new PageOutcomePolicy.SurfaceGate();INSTANCE.set(s);OcrMonitorService.rejectNumbers=false;routedReject="";OcrMonitorService.monitoring=true;WINDOW_TRANSITION_EPOCH.set(0);queries=Collections.synchronizedList(new ArrayList<>());s.root=new AccessibilityNodeInfo("",new Rect(0,0,1080,2400));
-            s.root.kids.add(new AccessibilityNodeInfo("Accept",button));s.root.kids.add(new AccessibilityNodeInfo("$121.97",new Rect(80,850,260,900)));
-            s.root.kids.add(new AccessibilityNodeInfo("0.2 mi",new Rect(410,850,580,900)));s.root.kids.add(new AccessibilityNodeInfo("Luna Grill • 524 Spectrum Center Dr, Irvine, CA 92618, USA",new Rect(80,940,900,1000)));
-            AcceptControlWatch priorControl=WATCH_CANDIDATE.getAndSet(null);if(priorControl!=null)priorControl.close();OcrMonitorService.controlModes.clear();queryGate=queryEntered=null;gatedQueries=Set.of();rootReads=boundReads=dispatch=refresh=resolveCalls=0;treeReads=0;retryTree=null;treeHook=null;witnessOpenAtDispatch=throwDispatch=finalRetryChurn=finalRetryNegative=finalRetryWindow=false;OcrMonitorService.retryGuard="";OcrMonitorService.cardGuard="";queries.clear();mutateIndex=false;outcomeMutations=0;page=PageGuard.Page.UNKNOWN;SystemClock.now=1000;UI_GENERATION.set(1);PRESSURE_LAYOUT_EPOCH.set(0);FIRST_SEEN_AT.clear();firstSeenNumericAt=firstSeenNumericLastAt=acceptAnchorFirstAt=acceptAnchorLastAt=0;firstSeenNumericKey=acceptAnchorNumericKey=0;OcrMonitorService.indexedRootWakes=0;refreshResult=null;PAGE_RETRY_RECEIPT.set(null);OcrMonitorService.boundSnapshots.clear();OcrMonitorService.pressureSnapshot=null;OcrMonitorService.pendingAction=0;OcrMonitorService.pendingText="";OcrMonitorService.sentAt=0;foregroundPackage="com.deliverthat.driver";return s;}
-          @@ -174,8 +175,14 @@
-            check(noHigherIndexedOfferAction(s.root,new Rect(0,0,1080,2400),1094),"same-row left control does not block current right CTA");
-            s=setup();
-            s.root.kids.add(new AccessibilityNodeInfo("$121.97 Est. 0.2 mi",new Rect(80,850,580,900)));
-          - f=read();check(f!=null && Collections.frequency(queries,"$")==1 && Collections.frequency(queries,"mi")==1,
-          -         "concurrent numeric discovery runs each query once without repeating after action binding");
-          + f=read();check(f!=null && f.amount==121.97f && f.miles==.2f
-          +         && Collections.frequency(queries,"$")<=1 && Collections.frequency(queries,"mi")<=1,
-          +         "action-sufficient numeric discovery may cancel speculative queries but never repeats them: "+queries);
-          + tap(f);check(dispatch==1,"action-sufficient numeric evidence reaches guarded dispatch");
-          + s=setup(); // Neither action query can return these separate numeric labels.
-          + f=read();check(f!=null && f.amount==121.97f && f.miles==.2f
-          +         && Collections.frequency(queries,"$")==1 && Collections.frequency(queries,"mi")==1,
-          +         "required concurrent numeric discovery runs each query exactly once: "+queries);
-            tap(f);check(dispatch==1,"reused live numeric fields reach guarded dispatch");
-            s=setup();
-           
-          @@ -305,7 +312,7 @@
-            check(dispatch==1&&refresh==0,"a completed coherent proof is not discarded when its last Binder read overruns the soft slice");
-            // v139: RN merged parent and duplicated numeric children require only one field refresh.
-            s=setup();s.root.kids.add(new AccessibilityNodeInfo("$121.97",new Rect(80,850,260,900)));s.root.kids.add(new AccessibilityNodeInfo("$121.97",new Rect(80,850,260,900)));s.root.kids.add(new AccessibilityNodeInfo("$121.97 0.2 mi Luna Grill • 524 Spectrum Center Dr, Irvine, CA 92618, USA",new Rect(80,850,900,1000)));
-          - f=read();check(f!=null&&f.indexedRead.witness.fields.size()==2&&Collections.frequency(queries,"$")==1,"coherent action-query parent avoids duplicate numeric processing/child handles after concurrent discovery");
-          + f=read();check(f!=null&&f.indexedRead.witness.fields.size()==2&&Collections.frequency(queries,"$")<=1&&Collections.frequency(queries,"mi")<=1,"coherent action-query parent avoids duplicate numeric processing/child handles after concurrent discovery: "+queries);
-            check(hasFreshIndexedWitness(),"fresh published proof suppresses competing ancestor enrichment");
-            s.root.kids.get(1).refreshCost=70;s.root.kids.get(2).refreshCost=70;s.root.kids.get(3).refreshCost=70;
-            UI_GENERATION.incrementAndGet();tap(f);check(dispatch==1&&refresh==0&&last.contains("LIVE_WINDOW_RECEIPT_REUSED"),"merged parent CTA sends without duplicate child Binder reads");
-          --- a/tools/check_speed_first_index.py
-          +++ b/tools/check_speed_first_index.py
-          @@ -17,7 +17,8 @@
-            CountDownLatch textRead;int textReads,descriptionReads,boundsReads;AccessibilityNodeInfo parent;AccessibilityNodeInfo getParent(){return parent;}AccessibilityNodeInfo(String t,Rect b){text=t;bounds=b;}CharSequence getText(){textReads++;if(textRead!=null)textRead.countDown();return text;}CharSequence getContentDescription(){descriptionReads++;return desc;}CharSequence getPackageName(){return pkg;}
-            static AccessibilityNodeInfo obtain(AccessibilityNodeInfo n){return n;}boolean visible=true;boolean isEnabled(){return enabled;}boolean isVisibleToUser(){return visible;}boolean refreshOK=true,mutateOnRefresh,stopOnRefresh,windowOnRefresh;CountDownLatch gate,entered;int refreshCalls;long refreshCost=1;Runnable refreshHook;boolean refresh(){refreshCalls++;if(refreshHook!=null)refreshHook.run();if(entered!=null)entered.countDown();if(gate!=null)try{gate.await();}catch(InterruptedException e){Thread.currentThread().interrupt();return false;}SystemClock.advance(refreshCost);if(stopOnRefresh)OcrMonitorService.monitoring=false;if(windowOnRefresh)TapAccessibilityService.WINDOW_TRANSITION_EPOCH.incrementAndGet();if(mutateOnRefresh){TapAccessibilityService.UI_GENERATION.incrementAndGet();mutateOnRefresh=false;}return refreshOK;}
-            void getBoundsInScreen(Rect b){boundsReads++;if(this==TapAccessibilityService.INSTANCE.get().root)TapAccessibilityService.boundReads++;b.set(bounds);}int getWindowId(){return windowId;}void recycle(){}
-          - List<AccessibilityNodeInfo> findAccessibilityNodeInfosByText(String q){TapAccessibilityService.queries.add(q);
-          + final List<String> queryLog=TapAccessibilityService.queries;
-          + List<AccessibilityNodeInfo> findAccessibilityNodeInfosByText(String q){queryLog.add(q);
-            if(TapAccessibilityService.queryGate!=null && TapAccessibilityService.gatedQueries.contains(q)) {
-             TapAccessibilityService.queryEntered.countDown();
-             try{if(!TapAccessibilityService.queryGate.await(2,TimeUnit.SECONDS))throw new IllegalStateException("query coordination");}
-          @@ -107,10 +108,10 @@
-             if(OcrMonitorService.proof.pending.isEmpty()&&OcrMonitorService.clicks.pending.isEmpty())return;
-            }throw new AssertionError("renewal loop did not quiesce");}
-            static Rect button=new Rect(689,1094,840,1151);static String last;
-          - static TapAccessibilityService setup(){OcrMonitorService.proof=new Handler();OcrMonitorService.clicks=new Handler();pressureFinalHook=null;clearAcceptResumeNodes();rootGate=rootEntered=null;clearIndexedRootReceipt();TapAccessibilityService old=INSTANCE.get();if(old!=null){old.firstShotIndexBatch.close();old.witnessReadBatch.close();old.ownedResumeReadBatch.close();old.outcomePageReadBatch.close();old.outcomeDeadlineReads.close();old.successDeadlineReads.close();if(old.rootReadAhead!=null)old.rootReadAhead.shutdownNow();}IndexedWitness prior=LAST_INDEXED_WITNESS.getAndSet(null);if(prior!=null)prior.close();TapAccessibilityService s=new TapAccessibilityService();s.firstShotIndexBatch.warmUp();s.witnessReadBatch.warmUp();s.ownedResumeReadBatch.warmUp();s.outcomePageReadBatch.warmUp();CURRENT_SURFACE_GATE=new PageOutcomePolicy.SurfaceGate();INSTANCE.set(s);OcrMonitorService.rejectNumbers=false;routedReject="";OcrMonitorService.monitoring=true;WINDOW_TRANSITION_EPOCH.set(0);s.root=new AccessibilityNodeInfo("",new Rect(0,0,1080,2400));
-          + static TapAccessibilityService setup(){OcrMonitorService.proof=new Handler();OcrMonitorService.clicks=new Handler();pressureFinalHook=null;clearAcceptResumeNodes();rootGate=rootEntered=null;clearIndexedRootReceipt();TapAccessibilityService old=INSTANCE.get();if(old!=null){old.firstShotIndexBatch.close();old.witnessReadBatch.close();old.ownedResumeReadBatch.close();old.outcomePageReadBatch.close();old.outcomeDeadlineReads.close();old.successDeadlineReads.close();if(old.rootReadAhead!=null)old.rootReadAhead.shutdownNow();}IndexedWitness prior=LAST_INDEXED_WITNESS.getAndSet(null);if(prior!=null)prior.close();TapAccessibilityService s=new TapAccessibilityService();s.firstShotIndexBatch.warmUp();s.witnessReadBatch.warmUp();s.ownedResumeReadBatch.warmUp();s.outcomePageReadBatch.warmUp();CURRENT_SURFACE_GATE=new PageOutcomePolicy.SurfaceGate();INSTANCE.set(s);OcrMonitorService.rejectNumbers=false;routedReject="";OcrMonitorService.monitoring=true;WINDOW_TRANSITION_EPOCH.set(0);queries=Collections.synchronizedList(new ArrayList<>());s.root=new AccessibilityNodeInfo("",new Rect(0,0,1080,2400));
-            s.root.kids.add(new AccessibilityNodeInfo("Accept",button));s.root.kids.add(new AccessibilityNodeInfo("$121.97",new Rect(80,850,260,900)));
-            s.root.kids.add(new AccessibilityNodeInfo("0.2 mi",new Rect(410,850,580,900)));s.root.kids.add(new AccessibilityNodeInfo("Luna Grill • 524 Spectrum Center Dr, Irvine, CA 92618, USA",new Rect(80,940,900,1000)));
-          - AcceptControlWatch priorControl=WATCH_CANDIDATE.getAndSet(null);if(priorControl!=null)priorControl.close();OcrMonitorService.controlModes.clear();queryGate=queryEntered=null;gatedQueries=Set.of();rootReads=boundReads=dispatch=refresh=resolveCalls=0;treeReads=0;retryTree=null;treeHook=null;witnessOpenAtDispatch=throwDispatch=finalRetryChurn=finalRetryNegative=finalRetryWindow=false;OcrMonitorService.retryGuard="";OcrMonitorService.cardGuard="";queries.clear();hotEvent=null;mutateIndex=false;outcomeMutations=0;page=PageGuard.Page.UNKNOWN;SystemClock.now=1000;UI_GENERATION.set(1);PRESSURE_LAYOUT_EPOCH.set(0);FIRST_SEEN_AT.clear();firstSeenNumericAt=firstSeenNumericLastAt=acceptAnchorFirstAt=acceptAnchorLastAt=0;firstSeenNumericKey=acceptAnchorNumericKey=0;OcrMonitorService.indexedRootWakes=0;refreshResult=null;PAGE_RETRY_RECEIPT.set(null);OcrMonitorService.boundSnapshots.clear();OcrMonitorService.pressureSnapshot=null;OcrMonitorService.pendingAction=0;OcrMonitorService.pendingText="";OcrMonitorService.sentAt=0;foregroundPackage="com.deliverthat.driver";return s;}
-          + AcceptControlWatch priorControl=WATCH_CANDIDATE.getAndSet(null);if(priorControl!=null)priorControl.close();OcrMonitorService.controlModes.clear();queryGate=queryEntered=null;gatedQueries=Set.of();rootReads=boundReads=dispatch=refresh=resolveCalls=0;treeReads=0;retryTree=null;treeHook=null;witnessOpenAtDispatch=throwDispatch=finalRetryChurn=finalRetryNegative=finalRetryWindow=false;OcrMonitorService.retryGuard="";OcrMonitorService.cardGuard="";hotEvent=null;mutateIndex=false;outcomeMutations=0;page=PageGuard.Page.UNKNOWN;SystemClock.now=1000;UI_GENERATION.set(1);PRESSURE_LAYOUT_EPOCH.set(0);FIRST_SEEN_AT.clear();firstSeenNumericAt=firstSeenNumericLastAt=acceptAnchorFirstAt=acceptAnchorLastAt=0;firstSeenNumericKey=acceptAnchorNumericKey=0;OcrMonitorService.indexedRootWakes=0;refreshResult=null;PAGE_RETRY_RECEIPT.set(null);OcrMonitorService.boundSnapshots.clear();OcrMonitorService.pressureSnapshot=null;OcrMonitorService.pendingAction=0;OcrMonitorService.pendingText="";OcrMonitorService.sentAt=0;foregroundPackage="com.deliverthat.driver";return s;}
-            static FastOfferSnapshot read(){return getIndexedGeneralOrPasadenaCurrentTopAcceptSnapshot(80,20,true,true,false);}
-            static void tap(FastOfferSnapshot s){tapSnapshotFastDetailed(s,s.amount,s.miles,m->last=m,m->last=m);}
-            static final String OWNED="$110.02 2.6 mi Today at 11:05 AM Mendocino Farms • 840 S Sepulveda Blvd, El Segundo, CA 90245";
-          @@ -174,8 +175,14 @@
-            check(noHigherIndexedOfferAction(s.root,new Rect(0,0,1080,2400),1094),"same-row left control does not block current right CTA");
-            s=setup();
-            s.root.kids.add(new AccessibilityNodeInfo("$121.97 Est. 0.2 mi",new Rect(80,850,580,900)));
-          - f=read();check(f!=null && Collections.frequency(queries,"$")==1 && Collections.frequency(queries,"mi")==1,
-          -         "concurrent numeric discovery runs each query once without repeating after action binding");
-          + f=read();check(f!=null && f.amount==121.97f && f.miles==.2f
-          +         && Collections.frequency(queries,"$")<=1 && Collections.frequency(queries,"mi")<=1,
-          +         "action-sufficient numeric discovery may cancel speculative queries but never repeats them: "+queries);
-          + tap(f);check(dispatch==1,"action-sufficient numeric evidence reaches guarded dispatch");
-          + s=setup(); // Neither action query can return these separate numeric labels.
-          + f=read();check(f!=null && f.amount==121.97f && f.miles==.2f
-          +         && Collections.frequency(queries,"$")==1 && Collections.frequency(queries,"mi")==1,
-          +         "required concurrent numeric discovery runs each query exactly once: "+queries);
-            tap(f);check(dispatch==1,"reused live numeric fields reach guarded dispatch");
-            s=setup();
-           
-          @@ -329,7 +336,7 @@
-            check(dispatch==1&&refresh==0,"a completed coherent proof is not discarded when its last Binder read overruns the soft slice");
-            // v139: RN merged parent and duplicated numeric children require only one field refresh.
-            s=setup();s.root.kids.add(new AccessibilityNodeInfo("$121.97",new Rect(80,850,260,900)));s.root.kids.add(new AccessibilityNodeInfo("$121.97",new Rect(80,850,260,900)));s.root.kids.add(new AccessibilityNodeInfo("$121.97 0.2 mi Luna Grill • 524 Spectrum Center Dr, Irvine, CA 92618, USA",new Rect(80,850,900,1000)));
-          - f=read();check(f!=null&&f.indexedRead.witness.fields.size()==2&&Collections.frequency(queries,"$")==1,"coherent action-query parent avoids duplicate numeric processing/child handles after concurrent discovery");
-          + f=read();check(f!=null&&f.indexedRead.witness.fields.size()==2&&Collections.frequency(queries,"$")<=1&&Collections.frequency(queries,"mi")<=1,"coherent action-query parent avoids duplicate numeric processing/child handles after concurrent discovery: "+queries);
-            check(hasFreshIndexedWitness(),"fresh published proof suppresses competing ancestor enrichment");
-            s.root.kids.get(1).refreshCost=70;s.root.kids.get(2).refreshCost=70;s.root.kids.get(3).refreshCost=70;
-            UI_GENERATION.incrementAndGet();tap(f);check(dispatch==1&&refresh==0&&last.contains("LIVE_WINDOW_RECEIPT_REUSED"),"merged parent CTA sends without duplicate child Binder reads");
-          CSA_TEST_PATCH
-          sha256sum --check <<'CSA_PATCHED_TESTS'
-          b54a8a84e2733dceeb81114d794b9b4c5cecdbb8307b755f0f61f962d17d0e3e  tools/check_index_pipeline.py
-          e9dd12bf99e803b49045687b71e822ce8d294692a35f63cb5995d4063eaaf614  tools/check_speed_first_index.py
-          CSA_PATCHED_TESTS
-
-      - name: Run v2.10.306 regression tests
+      - name: Run regression suite
         shell: bash
         run: bash "$CSA_PROJECT_DIR/run-regression-tests.sh"
-
-      - name: Compile signed release APK
+      - name: Build signed release
         shell: bash
-        run: |
-          gradle --no-daemon --stacktrace --project-dir "$CSA_PROJECT_DIR" \
-            :app:assembleRelease
-
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+        run: gradle --no-daemon --stacktrace --project-dir "$CSA_PROJECT_DIR" :app:assembleRelease
+      - uses: actions/upload-artifact@v4
         with:
-          name: CateringScreenAssistant-v2.10.306-Signed-APK
+          name: CateringScreenAssistant-v2.10.307-Signed-APK
           path: ${{ env.CSA_PROJECT_DIR }}/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 30
