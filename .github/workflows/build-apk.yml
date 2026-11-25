@@ -160,6 +160,120 @@ jobs:
           keytool -list -keystore "$CSA_PROJECT_DIR/csa-upgrade.keystore" \
             -storepass 'csa-update-2026' -alias csa >/dev/null
 
+      - name: Apply v306 test-only concurrency correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$CSA_PROJECT_DIR"
+          sha256sum --check <<'CSA_ORIGINAL_TESTS'
+          2e3d1c3255b853d5057c43c38d825abc968e45db2bcde07d5d59399c327335ac  tools/check_index_pipeline.py
+          e439d5e6003080557088c6c5c1904bd2337af724f92504eb2f73b7d428bb0294  tools/check_speed_first_index.py
+          CSA_ORIGINAL_TESTS
+          patch --batch --forward --fuzz=0 -p1 <<'CSA_TEST_PATCH'
+          --- a/tools/check_index_pipeline.py
+          +++ b/tools/check_index_pipeline.py
+          @@ -17,7 +17,8 @@
+            CountDownLatch textRead;int textReads,descriptionReads,boundsReads;AccessibilityNodeInfo parent;AccessibilityNodeInfo getParent(){return parent;}AccessibilityNodeInfo(String t,Rect b){text=t;bounds=b;}CharSequence getText(){textReads++;if(textRead!=null)textRead.countDown();return text;}CharSequence getContentDescription(){descriptionReads++;return desc;}CharSequence getPackageName(){return pkg;}
+            static AccessibilityNodeInfo obtain(AccessibilityNodeInfo n){return n;}boolean visible=true;boolean isEnabled(){return enabled;}boolean isVisibleToUser(){return visible;}boolean refreshOK=true,mutateOnRefresh,stopOnRefresh,windowOnRefresh;CountDownLatch gate,entered;int refreshCalls;long refreshCost=1;Runnable refreshHook;boolean refresh(){refreshCalls++;if(refreshHook!=null)refreshHook.run();if(entered!=null)entered.countDown();if(gate!=null)try{gate.await();}catch(InterruptedException e){Thread.currentThread().interrupt();return false;}SystemClock.advance(refreshCost);if(stopOnRefresh)OcrMonitorService.monitoring=false;if(windowOnRefresh)TapAccessibilityService.WINDOW_TRANSITION_EPOCH.incrementAndGet();if(mutateOnRefresh){TapAccessibilityService.UI_GENERATION.incrementAndGet();mutateOnRefresh=false;}return refreshOK;}
+            void getBoundsInScreen(Rect b){boundsReads++;if(this==TapAccessibilityService.INSTANCE.get().root)TapAccessibilityService.boundReads++;b.set(bounds);}int getWindowId(){return windowId;}void recycle(){}
+          - List<AccessibilityNodeInfo> findAccessibilityNodeInfosByText(String q){TapAccessibilityService.queries.add(q);
+          + final List<String> queryLog=TapAccessibilityService.queries;
+          + List<AccessibilityNodeInfo> findAccessibilityNodeInfosByText(String q){queryLog.add(q);
+            if(TapAccessibilityService.queryGate!=null && TapAccessibilityService.gatedQueries.contains(q)) {
+             TapAccessibilityService.queryEntered.countDown();
+             try{if(!TapAccessibilityService.queryGate.await(2,TimeUnit.SECONDS))throw new IllegalStateException("query coordination");}
+          @@ -107,7 +108,7 @@
+             if(OcrMonitorService.proof.pending.isEmpty()&&OcrMonitorService.clicks.pending.isEmpty())return;
+            }throw new AssertionError("renewal loop did not quiesce");}
+            static Rect button=new Rect(689,1094,840,1151);static String last;
+          - static TapAccessibilityService setup(){OcrMonitorService.proof=new Handler();OcrMonitorService.clicks=new Handler();pressureFinalHook=null;clearAcceptResumeNodes();rootGate=rootEntered=null;clearIndexedRootReceipt();TapAccessibilityService old=INSTANCE.get();if(old!=null){old.firstShotIndexBatch.close();old.witnessReadBatch.close();old.ownedResumeReadBatch.close();old.outcomePageReadBatch.close();old.outcomeDeadlineReads.close();old.successDeadlineReads.close();if(old.rootReadAhead!=null)old.rootReadAhead.shutdownNow();}IndexedWitness prior=LAST_INDEXED_WITNESS.getAndSet(null);if(prior!=null)prior.close();TapAccessibilityService s=new TapAccessibilityService();s.firstShotIndexBatch.warmUp();s.witnessReadBatch.warmUp();s.ownedResumeReadBatch.warmUp();s.outcomePageReadBatch.warmUp();CURRENT_SURFACE_GATE=new PageOutcomePolicy.SurfaceGate();INSTANCE.set(s);OcrMonitorService.rejectNumbers=false;routedReject="";OcrMonitorService.monitoring=true;WINDOW_TRANSITION_EPOCH.set(0);s.root=new AccessibilityNodeInfo("",new Rect(0,0,1080,2400));
+          + static TapAccessibilityService setup(){OcrMonitorService.proof=new Handler();OcrMonitorService.clicks=new Handler();pressureFinalHook=null;clearAcceptResumeNodes();rootGate=rootEntered=null;clearIndexedRootReceipt();TapAccessibilityService old=INSTANCE.get();if(old!=null){old.firstShotIndexBatch.close();old.witnessReadBatch.close();old.ownedResumeReadBatch.close();old.outcomePageReadBatch.close();old.outcomeDeadlineReads.close();old.successDeadlineReads.close();if(old.rootReadAhead!=null)old.rootReadAhead.shutdownNow();}IndexedWitness prior=LAST_INDEXED_WITNESS.getAndSet(null);if(prior!=null)prior.close();TapAccessibilityService s=new TapAccessibilityService();s.firstShotIndexBatch.warmUp();s.witnessReadBatch.warmUp();s.ownedResumeReadBatch.warmUp();s.outcomePageReadBatch.warmUp();CURRENT_SURFACE_GATE=new PageOutcomePolicy.SurfaceGate();INSTANCE.set(s);OcrMonitorService.rejectNumbers=false;routedReject="";OcrMonitorService.monitoring=true;WINDOW_TRANSITION_EPOCH.set(0);queries=Collections.synchronizedList(new ArrayList<>());s.root=new AccessibilityNodeInfo("",new Rect(0,0,1080,2400));
+            s.root.kids.add(new AccessibilityNodeInfo("Accept",button));s.root.kids.add(new AccessibilityNodeInfo("$121.97",new Rect(80,850,260,900)));
+            s.root.kids.add(new AccessibilityNodeInfo("0.2 mi",new Rect(410,850,580,900)));s.root.kids.add(new AccessibilityNodeInfo("Luna Grill • 524 Spectrum Center Dr, Irvine, CA 92618, USA",new Rect(80,940,900,1000)));
+            AcceptControlWatch priorControl=WATCH_CANDIDATE.getAndSet(null);if(priorControl!=null)priorControl.close();OcrMonitorService.controlModes.clear();queryGate=queryEntered=null;gatedQueries=Set.of();rootReads=boundReads=dispatch=refresh=resolveCalls=0;treeReads=0;retryTree=null;treeHook=null;witnessOpenAtDispatch=throwDispatch=finalRetryChurn=finalRetryNegative=finalRetryWindow=false;OcrMonitorService.retryGuard="";OcrMonitorService.cardGuard="";queries.clear();mutateIndex=false;outcomeMutations=0;page=PageGuard.Page.UNKNOWN;SystemClock.now=1000;UI_GENERATION.set(1);PRESSURE_LAYOUT_EPOCH.set(0);FIRST_SEEN_AT.clear();firstSeenNumericAt=firstSeenNumericLastAt=acceptAnchorFirstAt=acceptAnchorLastAt=0;firstSeenNumericKey=acceptAnchorNumericKey=0;OcrMonitorService.indexedRootWakes=0;refreshResult=null;PAGE_RETRY_RECEIPT.set(null);OcrMonitorService.boundSnapshots.clear();OcrMonitorService.pressureSnapshot=null;OcrMonitorService.pendingAction=0;OcrMonitorService.pendingText="";OcrMonitorService.sentAt=0;foregroundPackage="com.deliverthat.driver";return s;}
+          @@ -174,8 +175,14 @@
+            check(noHigherIndexedOfferAction(s.root,new Rect(0,0,1080,2400),1094),"same-row left control does not block current right CTA");
+            s=setup();
+            s.root.kids.add(new AccessibilityNodeInfo("$121.97 Est. 0.2 mi",new Rect(80,850,580,900)));
+          - f=read();check(f!=null && Collections.frequency(queries,"$")==1 && Collections.frequency(queries,"mi")==1,
+          -         "concurrent numeric discovery runs each query once without repeating after action binding");
+          + f=read();check(f!=null && f.amount==121.97f && f.miles==.2f
+          +         && Collections.frequency(queries,"$")<=1 && Collections.frequency(queries,"mi")<=1,
+          +         "action-sufficient numeric discovery may cancel speculative queries but never repeats them: "+queries);
+          + tap(f);check(dispatch==1,"action-sufficient numeric evidence reaches guarded dispatch");
+          + s=setup(); // Neither action query can return these separate numeric labels.
+          + f=read();check(f!=null && f.amount==121.97f && f.miles==.2f
+          +         && Collections.frequency(queries,"$")==1 && Collections.frequency(queries,"mi")==1,
+          +         "required concurrent numeric discovery runs each query exactly once: "+queries);
+            tap(f);check(dispatch==1,"reused live numeric fields reach guarded dispatch");
+            s=setup();
+           
+          @@ -305,7 +312,7 @@
+            check(dispatch==1&&refresh==0,"a completed coherent proof is not discarded when its last Binder read overruns the soft slice");
+            // v139: RN merged parent and duplicated numeric children require only one field refresh.
+            s=setup();s.root.kids.add(new AccessibilityNodeInfo("$121.97",new Rect(80,850,260,900)));s.root.kids.add(new AccessibilityNodeInfo("$121.97",new Rect(80,850,260,900)));s.root.kids.add(new AccessibilityNodeInfo("$121.97 0.2 mi Luna Grill • 524 Spectrum Center Dr, Irvine, CA 92618, USA",new Rect(80,850,900,1000)));
+          - f=read();check(f!=null&&f.indexedRead.witness.fields.size()==2&&Collections.frequency(queries,"$")==1,"coherent action-query parent avoids duplicate numeric processing/child handles after concurrent discovery");
+          + f=read();check(f!=null&&f.indexedRead.witness.fields.size()==2&&Collections.frequency(queries,"$")<=1&&Collections.frequency(queries,"mi")<=1,"coherent action-query parent avoids duplicate numeric processing/child handles after concurrent discovery: "+queries);
+            check(hasFreshIndexedWitness(),"fresh published proof suppresses competing ancestor enrichment");
+            s.root.kids.get(1).refreshCost=70;s.root.kids.get(2).refreshCost=70;s.root.kids.get(3).refreshCost=70;
+            UI_GENERATION.incrementAndGet();tap(f);check(dispatch==1&&refresh==0&&last.contains("LIVE_WINDOW_RECEIPT_REUSED"),"merged parent CTA sends without duplicate child Binder reads");
+          --- a/tools/check_speed_first_index.py
+          +++ b/tools/check_speed_first_index.py
+          @@ -17,7 +17,8 @@
+            CountDownLatch textRead;int textReads,descriptionReads,boundsReads;AccessibilityNodeInfo parent;AccessibilityNodeInfo getParent(){return parent;}AccessibilityNodeInfo(String t,Rect b){text=t;bounds=b;}CharSequence getText(){textReads++;if(textRead!=null)textRead.countDown();return text;}CharSequence getContentDescription(){descriptionReads++;return desc;}CharSequence getPackageName(){return pkg;}
+            static AccessibilityNodeInfo obtain(AccessibilityNodeInfo n){return n;}boolean visible=true;boolean isEnabled(){return enabled;}boolean isVisibleToUser(){return visible;}boolean refreshOK=true,mutateOnRefresh,stopOnRefresh,windowOnRefresh;CountDownLatch gate,entered;int refreshCalls;long refreshCost=1;Runnable refreshHook;boolean refresh(){refreshCalls++;if(refreshHook!=null)refreshHook.run();if(entered!=null)entered.countDown();if(gate!=null)try{gate.await();}catch(InterruptedException e){Thread.currentThread().interrupt();return false;}SystemClock.advance(refreshCost);if(stopOnRefresh)OcrMonitorService.monitoring=false;if(windowOnRefresh)TapAccessibilityService.WINDOW_TRANSITION_EPOCH.incrementAndGet();if(mutateOnRefresh){TapAccessibilityService.UI_GENERATION.incrementAndGet();mutateOnRefresh=false;}return refreshOK;}
+            void getBoundsInScreen(Rect b){boundsReads++;if(this==TapAccessibilityService.INSTANCE.get().root)TapAccessibilityService.boundReads++;b.set(bounds);}int getWindowId(){return windowId;}void recycle(){}
+          - List<AccessibilityNodeInfo> findAccessibilityNodeInfosByText(String q){TapAccessibilityService.queries.add(q);
+          + final List<String> queryLog=TapAccessibilityService.queries;
+          + List<AccessibilityNodeInfo> findAccessibilityNodeInfosByText(String q){queryLog.add(q);
+            if(TapAccessibilityService.queryGate!=null && TapAccessibilityService.gatedQueries.contains(q)) {
+             TapAccessibilityService.queryEntered.countDown();
+             try{if(!TapAccessibilityService.queryGate.await(2,TimeUnit.SECONDS))throw new IllegalStateException("query coordination");}
+          @@ -107,10 +108,10 @@
+             if(OcrMonitorService.proof.pending.isEmpty()&&OcrMonitorService.clicks.pending.isEmpty())return;
+            }throw new AssertionError("renewal loop did not quiesce");}
+            static Rect button=new Rect(689,1094,840,1151);static String last;
+          - static TapAccessibilityService setup(){OcrMonitorService.proof=new Handler();OcrMonitorService.clicks=new Handler();pressureFinalHook=null;clearAcceptResumeNodes();rootGate=rootEntered=null;clearIndexedRootReceipt();TapAccessibilityService old=INSTANCE.get();if(old!=null){old.firstShotIndexBatch.close();old.witnessReadBatch.close();old.ownedResumeReadBatch.close();old.outcomePageReadBatch.close();old.outcomeDeadlineReads.close();old.successDeadlineReads.close();if(old.rootReadAhead!=null)old.rootReadAhead.shutdownNow();}IndexedWitness prior=LAST_INDEXED_WITNESS.getAndSet(null);if(prior!=null)prior.close();TapAccessibilityService s=new TapAccessibilityService();s.firstShotIndexBatch.warmUp();s.witnessReadBatch.warmUp();s.ownedResumeReadBatch.warmUp();s.outcomePageReadBatch.warmUp();CURRENT_SURFACE_GATE=new PageOutcomePolicy.SurfaceGate();INSTANCE.set(s);OcrMonitorService.rejectNumbers=false;routedReject="";OcrMonitorService.monitoring=true;WINDOW_TRANSITION_EPOCH.set(0);s.root=new AccessibilityNodeInfo("",new Rect(0,0,1080,2400));
+          + static TapAccessibilityService setup(){OcrMonitorService.proof=new Handler();OcrMonitorService.clicks=new Handler();pressureFinalHook=null;clearAcceptResumeNodes();rootGate=rootEntered=null;clearIndexedRootReceipt();TapAccessibilityService old=INSTANCE.get();if(old!=null){old.firstShotIndexBatch.close();old.witnessReadBatch.close();old.ownedResumeReadBatch.close();old.outcomePageReadBatch.close();old.outcomeDeadlineReads.close();old.successDeadlineReads.close();if(old.rootReadAhead!=null)old.rootReadAhead.shutdownNow();}IndexedWitness prior=LAST_INDEXED_WITNESS.getAndSet(null);if(prior!=null)prior.close();TapAccessibilityService s=new TapAccessibilityService();s.firstShotIndexBatch.warmUp();s.witnessReadBatch.warmUp();s.ownedResumeReadBatch.warmUp();s.outcomePageReadBatch.warmUp();CURRENT_SURFACE_GATE=new PageOutcomePolicy.SurfaceGate();INSTANCE.set(s);OcrMonitorService.rejectNumbers=false;routedReject="";OcrMonitorService.monitoring=true;WINDOW_TRANSITION_EPOCH.set(0);queries=Collections.synchronizedList(new ArrayList<>());s.root=new AccessibilityNodeInfo("",new Rect(0,0,1080,2400));
+            s.root.kids.add(new AccessibilityNodeInfo("Accept",button));s.root.kids.add(new AccessibilityNodeInfo("$121.97",new Rect(80,850,260,900)));
+            s.root.kids.add(new AccessibilityNodeInfo("0.2 mi",new Rect(410,850,580,900)));s.root.kids.add(new AccessibilityNodeInfo("Luna Grill • 524 Spectrum Center Dr, Irvine, CA 92618, USA",new Rect(80,940,900,1000)));
+          - AcceptControlWatch priorControl=WATCH_CANDIDATE.getAndSet(null);if(priorControl!=null)priorControl.close();OcrMonitorService.controlModes.clear();queryGate=queryEntered=null;gatedQueries=Set.of();rootReads=boundReads=dispatch=refresh=resolveCalls=0;treeReads=0;retryTree=null;treeHook=null;witnessOpenAtDispatch=throwDispatch=finalRetryChurn=finalRetryNegative=finalRetryWindow=false;OcrMonitorService.retryGuard="";OcrMonitorService.cardGuard="";queries.clear();hotEvent=null;mutateIndex=false;outcomeMutations=0;page=PageGuard.Page.UNKNOWN;SystemClock.now=1000;UI_GENERATION.set(1);PRESSURE_LAYOUT_EPOCH.set(0);FIRST_SEEN_AT.clear();firstSeenNumericAt=firstSeenNumericLastAt=acceptAnchorFirstAt=acceptAnchorLastAt=0;firstSeenNumericKey=acceptAnchorNumericKey=0;OcrMonitorService.indexedRootWakes=0;refreshResult=null;PAGE_RETRY_RECEIPT.set(null);OcrMonitorService.boundSnapshots.clear();OcrMonitorService.pressureSnapshot=null;OcrMonitorService.pendingAction=0;OcrMonitorService.pendingText="";OcrMonitorService.sentAt=0;foregroundPackage="com.deliverthat.driver";return s;}
+          + AcceptControlWatch priorControl=WATCH_CANDIDATE.getAndSet(null);if(priorControl!=null)priorControl.close();OcrMonitorService.controlModes.clear();queryGate=queryEntered=null;gatedQueries=Set.of();rootReads=boundReads=dispatch=refresh=resolveCalls=0;treeReads=0;retryTree=null;treeHook=null;witnessOpenAtDispatch=throwDispatch=finalRetryChurn=finalRetryNegative=finalRetryWindow=false;OcrMonitorService.retryGuard="";OcrMonitorService.cardGuard="";hotEvent=null;mutateIndex=false;outcomeMutations=0;page=PageGuard.Page.UNKNOWN;SystemClock.now=1000;UI_GENERATION.set(1);PRESSURE_LAYOUT_EPOCH.set(0);FIRST_SEEN_AT.clear();firstSeenNumericAt=firstSeenNumericLastAt=acceptAnchorFirstAt=acceptAnchorLastAt=0;firstSeenNumericKey=acceptAnchorNumericKey=0;OcrMonitorService.indexedRootWakes=0;refreshResult=null;PAGE_RETRY_RECEIPT.set(null);OcrMonitorService.boundSnapshots.clear();OcrMonitorService.pressureSnapshot=null;OcrMonitorService.pendingAction=0;OcrMonitorService.pendingText="";OcrMonitorService.sentAt=0;foregroundPackage="com.deliverthat.driver";return s;}
+            static FastOfferSnapshot read(){return getIndexedGeneralOrPasadenaCurrentTopAcceptSnapshot(80,20,true,true,false);}
+            static void tap(FastOfferSnapshot s){tapSnapshotFastDetailed(s,s.amount,s.miles,m->last=m,m->last=m);}
+            static final String OWNED="$110.02 2.6 mi Today at 11:05 AM Mendocino Farms • 840 S Sepulveda Blvd, El Segundo, CA 90245";
+          @@ -174,8 +175,14 @@
+            check(noHigherIndexedOfferAction(s.root,new Rect(0,0,1080,2400),1094),"same-row left control does not block current right CTA");
+            s=setup();
+            s.root.kids.add(new AccessibilityNodeInfo("$121.97 Est. 0.2 mi",new Rect(80,850,580,900)));
+          - f=read();check(f!=null && Collections.frequency(queries,"$")==1 && Collections.frequency(queries,"mi")==1,
+          -         "concurrent numeric discovery runs each query once without repeating after action binding");
+          + f=read();check(f!=null && f.amount==121.97f && f.miles==.2f
+          +         && Collections.frequency(queries,"$")<=1 && Collections.frequency(queries,"mi")<=1,
+          +         "action-sufficient numeric discovery may cancel speculative queries but never repeats them: "+queries);
+          + tap(f);check(dispatch==1,"action-sufficient numeric evidence reaches guarded dispatch");
+          + s=setup(); // Neither action query can return these separate numeric labels.
+          + f=read();check(f!=null && f.amount==121.97f && f.miles==.2f
+          +         && Collections.frequency(queries,"$")==1 && Collections.frequency(queries,"mi")==1,
+          +         "required concurrent numeric discovery runs each query exactly once: "+queries);
+            tap(f);check(dispatch==1,"reused live numeric fields reach guarded dispatch");
+            s=setup();
+           
+          @@ -329,7 +336,7 @@
+            check(dispatch==1&&refresh==0,"a completed coherent proof is not discarded when its last Binder read overruns the soft slice");
+            // v139: RN merged parent and duplicated numeric children require only one field refresh.
+            s=setup();s.root.kids.add(new AccessibilityNodeInfo("$121.97",new Rect(80,850,260,900)));s.root.kids.add(new AccessibilityNodeInfo("$121.97",new Rect(80,850,260,900)));s.root.kids.add(new AccessibilityNodeInfo("$121.97 0.2 mi Luna Grill • 524 Spectrum Center Dr, Irvine, CA 92618, USA",new Rect(80,850,900,1000)));
+          - f=read();check(f!=null&&f.indexedRead.witness.fields.size()==2&&Collections.frequency(queries,"$")==1,"coherent action-query parent avoids duplicate numeric processing/child handles after concurrent discovery");
+          + f=read();check(f!=null&&f.indexedRead.witness.fields.size()==2&&Collections.frequency(queries,"$")<=1&&Collections.frequency(queries,"mi")<=1,"coherent action-query parent avoids duplicate numeric processing/child handles after concurrent discovery: "+queries);
+            check(hasFreshIndexedWitness(),"fresh published proof suppresses competing ancestor enrichment");
+            s.root.kids.get(1).refreshCost=70;s.root.kids.get(2).refreshCost=70;s.root.kids.get(3).refreshCost=70;
+            UI_GENERATION.incrementAndGet();tap(f);check(dispatch==1&&refresh==0&&last.contains("LIVE_WINDOW_RECEIPT_REUSED"),"merged parent CTA sends without duplicate child Binder reads");
+          CSA_TEST_PATCH
+          sha256sum --check <<'CSA_PATCHED_TESTS'
+          b54a8a84e2733dceeb81114d794b9b4c5cecdbb8307b755f0f61f962d17d0e3e  tools/check_index_pipeline.py
+          e9dd12bf99e803b49045687b71e822ce8d294692a35f63cb5995d4063eaaf614  tools/check_speed_first_index.py
+          CSA_PATCHED_TESTS
+
       - name: Run v2.10.306 regression tests
         shell: bash
         run: bash "$CSA_PROJECT_DIR/run-regression-tests.sh"
